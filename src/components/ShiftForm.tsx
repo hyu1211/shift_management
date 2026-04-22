@@ -99,7 +99,7 @@ export default function ShiftForm() {
 
       const { error } = await supabase
         .from("shifts") // テーブル名
-        .upsert(dataToSave, { onConflict: "day" }); // "day" が重なったら更新する設定
+        .upsert(dataToSave, { onConflict: "user_id, day" }); // "day" が重なったら更新する設定
 
       if (error) throw error;
 
