@@ -3,6 +3,7 @@
 import { useState, useEffect, useId } from "react";
 import { supabase } from "@/lib/supabase"; // 接続用クライアントをインポート
 import { useRouter } from "next/navigation"; // 画面を移動させるための機能
+import LogoutButton from "@/components/LogoutButton";
 
 const daysOfWeek = ["月", "火", "水", "木", "金", "土", "日"];
 
@@ -159,6 +160,7 @@ export default function ShiftForm() {
             シフトを提出する
           </button>
         </div>
+        <LogoutButton/>
       </div>
     </div>
   );

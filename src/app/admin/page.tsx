@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import LogoutButton from "@/components/LogoutButton";
 
 export default function AdminDashboard() {
   const [allData, setAllData] = useState<any[]>([]);
@@ -78,6 +79,7 @@ if (error) {
           </tbody>
         </table>
       </div>
+      <LogoutButton/>
     </div>
   );
 }
