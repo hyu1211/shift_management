@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import LogoutButton from "@/components/LogoutButton";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function AdminPage() {
   const today = new Date();
+  const router = useRouter();
   
   // 💡 年の選択肢を動的に生成（今年を中心に前後1年ずつ、計3年分など）
   const currentYear = today.getFullYear();
@@ -25,42 +27,68 @@ export default function AdminPage() {
 
   const fetchData = async () => {
     setLoading(true);
-    const termId = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${targetPeriod}`;
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    const startDay = targetPeriod === "first" ? 1 : 16;
-    const lastDay = new Date(targetYear, targetMonth, 0).getDate();
-    const endDay = targetPeriod === "first" ? 15 : lastDay;
-    
-    const datesInRange: any[] = [];
-    for (let d = startDay; d <= endDay; d++) {
-      const dateStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][new Date(targetYear, targetMonth - 1, d).getDay()];
-      datesInRange.push({ date: dateStr, label: `${d}日 (${dayOfWeek})`, shifts: [] });
-    }
+      if (userError || !user) {
+        router.push("/login");
+        return;
+      }
 
-    const { data, error } = await supabase
-      .from("shifts")
-      .select(`
-        id,
-        shift_date,
-        start_time,
-        end_time,
-        is_confirmed,
-        profiles ( full_name )
-      `)
-      .eq("term_id", termId)
-      .eq("is_working", true)
-      .order("start_time", { ascending: true });
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single();
 
-    if (!error && data) {
-      data.forEach((shift: any) => {
-        const target = datesInRange.find(d => d.date === shift.shift_date);
+      if (profileError || profile?.role !== "admin") {
+        router.push("/");
+        return;
+      }
+
+      const termId = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${targetPeriod}`;
+      const startDay = targetPeriod === "first" ? 1 : 16;
+      const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+      const endDay = targetPeriod === "first" ? 15 : lastDay;
+
+      const datesInRange: any[] = [];
+      for (let d = startDay; d <= endDay; d++) {
+        const dateStr = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+        const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][new Date(targetYear, targetMonth - 1, d).getDay()];
+        datesInRange.push({ date: dateStr, label: `${d}日 (${dayOfWeek})`, shifts: [] });
+      }
+
+      const { data, error } = await supabase
+        .from("shifts")
+        .select(`
+          id,
+          shift_date,
+          start_time,
+          end_time,
+          is_confirmed,
+          profiles ( full_name )
+        `)
+        .eq("term_id", termId)
+        .eq("is_working", true)
+        .order("start_time", { ascending: true });
+
+      if (error) {
+        console.error(error);
+        return;
+      }
+
+      data?.forEach((shift: any) => {
+        const target = datesInRange.find((d) => d.date === shift.shift_date);
         if (target) target.shifts.push(shift);
       });
-    }
 
-    setDisplayDates(datesInRange);
-    setLoading(false);
+      setDisplayDates(datesInRange);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // 💡 時間の文字列から秒を消す便利な関数

@@ -22,19 +22,25 @@ export default function Login() {
         });
         if (error) throw error;
         alert("ログインしました！");
+        router.push("/");
       } else {
         // 新規登録処理
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
         });
         if (error) throw error;
+
+        // メール確認が必要な設定の場合はセッションが作られない
+        if (!data.session) {
+          alert("確認メールを送信しました。メール認証後にログインしてください。");
+          setIsLogin(true);
+          return;
+        }
+
         alert("ユーザー登録が完了しました！");
+        router.push("/setup-profile");
       }
-      
-      // 成功したらトップページ（シフト画面）へ移動
-      router.push("/");
-      
     } catch (error: any) {
       alert(`エラー: ${error.message}`);
     }

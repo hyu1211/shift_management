@@ -13,32 +13,49 @@ export default function SetupProfilePage() {
     e.preventDefault();
     setLoading(true);
 
-    // 1. 現在ログインしているユーザーのIDを取得
-    const { data: { user } } = await supabase.auth.getUser();
+    try {
+      const trimmedName = fullName.trim();
+      if (!trimmedName) {
+        alert("氏名を入力してください。");
+        return;
+      }
 
-    if (!user) {
-      alert("セッションが切れました。再度ログインしてください。");
-      router.push("/login");
-      return;
+      // 1. 現在ログインしているユーザーのIDを取得
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
+      if (userError || !user) {
+        alert("セッションが切れました。再度ログインしてください。");
+        router.push("/login");
+        return;
+      }
+
+      // 2. profilesテーブルを更新（または作成）
+      const { error } = await supabase.from("profiles").upsert(
+        {
+          id: user.id, // 認証IDと紐付け
+          full_name: trimmedName,
+        },
+        { onConflict: "id" }
+      );
+
+      if (error) {
+        console.error("プロフィール保存エラー:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
+        alert(`プロフィール保存に失敗しました: ${error.message}`);
+      } else {
+        alert("プロフィールを設定しました！");
+        router.push("/"); // ホーム画面へ移動
+      }
+    } finally {
+      setLoading(false);
     }
-
-    // 2. profilesテーブルの該当ユーザーの名前を更新（または作成）
-    const { error } = await supabase
-      .from("profiles")
-      .upsert({
-        id: user.id,        // 認証IDと紐付け
-        full_name: fullName, // 入力された名前
-        updated_at: new Date(),
-      });
-
-    if (error) {
-      console.error(error);
-      alert("エラーが発生しました");
-    } else {
-      alert("プロフィールを設定しました！");
-      router.push("/"); // ホーム画面へ移動
-    }
-    setLoading(false);
   };
 
   return (
@@ -66,7 +83,7 @@ export default function SetupProfilePage() {
 
           <button
             type="submit"
-            disabled={loading || !fullName}
+            disabled={loading || !fullName.trim()}
             className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-all shadow-lg disabled:bg-gray-300"
           >
             {loading ? "保存中..." : "利用を開始する"}

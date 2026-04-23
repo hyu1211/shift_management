@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import HomeButton from "@/components/HomeButton";
+import { useRouter } from "next/navigation";
 
 export default function MyShiftsPage() {
   const today = new Date();
+  const router = useRouter();
   const currentYear = today.getFullYear();
   const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
 
@@ -24,25 +26,39 @@ export default function MyShiftsPage() {
 
   const fetchMyShifts = async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
 
-    // 💡 選択された年・月・期間（term_id）で絞り込む
-    const termId = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${targetPeriod}`;
+      if (userError || !user) {
+        router.push("/login");
+        return;
+      }
 
-    const { data, error } = await supabase
-      .from("shifts")
-      .select("*")
-      .eq("user_id", user.id)
-      .eq("term_id", termId)
-      .eq("is_working", true)
-      .order("shift_date", { ascending: true })
-      .order("start_time", { ascending: true });
+      // 💡 選択された年・月・期間（term_id）で絞り込む
+      const termId = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${targetPeriod}`;
 
-    if (!error) {
+      const { data, error } = await supabase
+        .from("shifts")
+        .select("*")
+        .eq("user_id", user.id)
+        .eq("term_id", termId)
+        .eq("is_working", true)
+        .order("shift_date", { ascending: true })
+        .order("start_time", { ascending: true });
+
+      if (error) {
+        console.error(error);
+        setShifts([]);
+        return;
+      }
+
       setShifts(data || []);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // 💡 秒をカットして HH:mm 形式にする関数

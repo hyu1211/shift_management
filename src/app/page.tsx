@@ -7,29 +7,40 @@ import LogoutButton from "@/components/LogoutButton";
 
 export default function HomePage() {
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState<string | null>(null);
   const router = useRouter();
 
   useEffect(() => {
     const checkUser = async () => {
-      // 1. ログインチェック
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+      try {
+        // 1. ログインチェック
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
+        if (userError || !user) {
+          router.push("/login");
+          return;
+        }
 
-      // 2. 権限（Role）チェック
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("role")
-        .eq("id", user.id)
-        .single();
+        // 2. プロフィールと権限チェック
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .single();
 
-      if (profile?.role === "admin") {
-        router.push("/admin"); // 管理者なら管理者画面へ
-      } else {
-        setRole("staff"); // スタッフならこのままホームを表示
+        if (profileError || !profile?.full_name) {
+          router.push("/setup-profile");
+          return;
+        }
+
+        if (profile?.role === "admin") {
+          router.push("/admin"); // 管理者なら管理者画面へ
+          return;
+        }
+
+        // スタッフならこのままホームを表示
+      } finally {
         setLoading(false);
       }
     };
