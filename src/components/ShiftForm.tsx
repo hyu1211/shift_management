@@ -1,167 +1,197 @@
 "use client";
 
-import { useState, useEffect, useId } from "react";
-import { supabase } from "@/lib/supabase"; // 接続用クライアントをインポート
-import { useRouter } from "next/navigation"; // 画面を移動させるための機能
-import LogoutButton from "@/components/LogoutButton";
-
-const daysOfWeek = ["月", "火", "水", "木", "金", "土", "日"];
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
 
 export default function ShiftForm() {
-  //ログイン中のユーザーIDを保存する場所
-  const [userId, setUserId] = useState<string | null>(null);
-  const router = useRouter();
-  const [shifts, setShifts] = useState(
-    daysOfWeek.map((day) => ({
-      day,
-      isWorking: false,
-      startTime: "17:00",
-      endTime: "22:00",
-    }))
-  );
+  // デフォルトを「来月」に設定する
+  const today = new Date();
+  const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
 
-  // ページを開いた時にSupabaseからデータを取得する処理
+  const [targetYear, setTargetYear] = useState(nextMonth.getFullYear());
+  const [targetMonth, setTargetMonth] = useState(nextMonth.getMonth() + 1);
+  const [targetPeriod, setTargetPeriod] = useState<"first" | "second">("first");
+
+  const [shifts, setShifts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // 💡 年・月・期間が変わるたびに、自動でカレンダー（入力枠）を生成する関数
   useEffect(() => {
-    const checkUserAndFetchShifts = async () => {
-      try {
-        // 1. 今ログインしているユーザーの情報を取得
-        const { data: { user } } = await supabase.auth.getUser();
+    const generateDays = () => {
+      const newShifts = [];
+      const startDay = targetPeriod === "first" ? 1 : 16;
+      // その月の最終日を自動計算（例：2月なら28日、5月なら31日）
+      const lastDay = new Date(targetYear, targetMonth, 0).getDate();
+      const endDay = targetPeriod === "first" ? 15 : lastDay;
 
-        if (!user) {
-          // もしログインしていなければ、強制的にログイン画面へ飛ばす
-          router.push("/login");
-          return;
-        }
-
-        // ユーザーIDをセット
-        setUserId(user.id);
-
-        // 2. 「自分の user_id」のデータだけを取得する！
-        const { data, error } = await supabase
-          .from("shifts")
-          .select("*")
-          .eq("user_id", user.id); // 👈 ここが最重要フィルター！
+      for (let d = startDay; d <= endDay; d++) {
+        const dateObj = new Date(targetYear, targetMonth - 1, d);
+        const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][dateObj.getDay()];
         
-        if (error) throw error;
+        // YYYY-MM-DD 形式の文字列を作成（データベース保存用）
+        const dateStr = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
-        if (data && data.length > 0) {
-          const loadedShifts = daysOfWeek.map((day) => {
-            const savedData = data.find((d) => d.day === day);
-            if (savedData) {
-              return {
-                day: day,
-                isWorking: savedData.is_working,
-                startTime: savedData.start_time || "17:00",
-                endTime: savedData.end_time || "22:00",
-              };
-            }
-            return { day, isWorking: false, startTime: "17:00", endTime: "22:00" };
-          });
-          setShifts(loadedShifts);
-        }
-      } catch (error) {
-        console.error("取得エラー:", error);
+        newShifts.push({
+          shift_date: dateStr,
+          displayDate: `${d}日 (${dayOfWeek})`,
+          day: dayOfWeek, // 互換性のため曜日も保持
+          isWorking: false,
+          startTime: "17:00", // 塾によくある開始時間にデフォルトを変更
+          endTime: "21:30",
+        });
       }
+      setShifts(newShifts);
     };
 
-    checkUserAndFetchShifts();
-  }, [router]);
+    generateDays();
+  }, [targetYear, targetMonth, targetPeriod]);
 
-  const toggleWorking = (index: number) => {
+  // 特定の日付のデータを更新する関数
+  const updateShift = (index: number, field: string, value: any) => {
     const newShifts = [...shifts];
-    newShifts[index].isWorking = !newShifts[index].isWorking;
+    newShifts[index] = { ...newShifts[index], [field]: value };
     setShifts(newShifts);
   };
 
-  const handleTimeChange = (index: number, field: "startTime" | "endTime", value: string) => {
-    const newShifts = [...shifts];
-    newShifts[index][field] = value;
-    setShifts(newShifts);
-  };
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
 
-  // --- ここからが Supabase への保存処理 ---
-  const handleSubmit = async () => {
-// 💡 デバッグ用：今の userId をコンソールに表示
-  console.log("現在のログインユーザーID:", userId);
-
-    if (!userId) {
-      alert("ユーザーIDが取得できていません。一度ログアウトしてログインし直してください。");
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      alert("ログインしていません");
+      setLoading(false);
       return;
     }
-    try {
-      // データベースのテーブル定義に合わせてデータを整形
-      const dataToSave = shifts.map((shift) => ({
-        day: shift.day,
-        is_working: shift.isWorking,
-        start_time: shift.isWorking ? shift.startTime : null,
-        end_time: shift.isWorking ? shift.endTime : null,
-        user_id: userId,
-      }));
 
-      const { error } = await supabase
-        .from("shifts") // テーブル名
-        .upsert(dataToSave, { onConflict: "user_id, day" }); // "day" が重なったら更新する設定
+    // 期間IDを作成（例: "2026-05-first"）
+    const termId = `${targetYear}-${String(targetMonth).padStart(2, '0')}-${targetPeriod}`;
 
-      if (error) throw error;
+    // データベースに保存する形式に変換
+    const dataToSave = shifts.map((shift) => ({
+      user_id: user.id,
+      shift_date: shift.shift_date,
+      term_id: termId,
+      day: shift.day,
+      is_working: shift.isWorking,
+      start_time: shift.isWorking ? shift.startTime : null,
+      end_time: shift.isWorking ? shift.endTime : null,
+    }));
 
-      alert("Supabaseにシフトを保存しました！");
-    } catch (error: any) {
-      // エラーの中身を強制的に文字列にして全て表示する
-      console.error("保存エラー詳細:", JSON.stringify(error, null, 2));
-      console.error("エラーメッセージ:", error.message);
-      alert(`保存に失敗しました: ${error.message || "コンソールを確認してください"}`);
+    // user_id と shift_date のペアを基準にして、あれば上書き、なければ新規作成
+    const { error } = await supabase
+      .from("shifts")
+      .upsert(dataToSave, { onConflict: "user_id, shift_date" });
+
+    if (error) {
+      console.error(error);
+      alert("保存に失敗しました");
+    } else {
+      alert(`${targetMonth}月 ${targetPeriod === "first" ? "前半" : "後半"} のシフトを提出しました！`);
     }
+    setLoading(false);
   };
-  // --- ここまで ---
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden p-6">
-        <h1 className="text-2xl font-bold text-center text-gray-800 mb-6">希望シフト提出</h1>
-        <div className="space-y-4">
-          {shifts.map((shift, index) => (
-            <div key={shift.day} className="border-b border-gray-100 pb-4 last:border-0">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-lg font-medium text-gray-700">{shift.day}曜日</span>
-                <button
-                  onClick={() => toggleWorking(index)}
-                  className={`px-4 py-1 rounded-full text-sm font-semibold transition-colors ${
-                    shift.isWorking ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500"
-                  }`}
-                >
-                  {shift.isWorking ? "出勤" : "休み"}
-                </button>
-              </div>
-              {shift.isWorking && (
-                <div className="flex items-center space-x-2 mt-2">
-                  <input
-                    type="time"
-                    value={shift.startTime}
-                    onChange={(e) => handleTimeChange(index, "startTime", e.target.value)}
-                    className="border border-gray-300 rounded-md p-2 text-sm w-full focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                  <span className="text-gray-500">〜</span>
-                  <input
-                    type="time"
-                    value={shift.endTime}
-                    onChange={(e) => handleTimeChange(index, "endTime", e.target.value)}
-                    className="border border-gray-300 rounded-md p-2 text-sm w-full focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="mt-8">
-          <button
-            onClick={handleSubmit}
-            className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors shadow-lg"
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+      
+      {/* ▼ 期間選択コントローラー */}
+      <div className="mb-8 p-4 bg-gray-50 rounded-xl border border-gray-200">
+        <h2 className="text-sm font-bold text-gray-500 mb-3">提出する期間を選んでください</h2>
+        <div className="flex flex-wrap gap-4 items-center">
+          <select 
+            value={targetYear} 
+            onChange={(e) => setTargetYear(Number(e.target.value))}
+            className="p-2 rounded-lg border font-bold text-gray-700 outline-none"
           >
-            シフトを提出する
+            <option value={today.getFullYear()}>{today.getFullYear()}年</option>
+            <option value={today.getFullYear() + 1}>{today.getFullYear() + 1}年</option>
+          </select>
+          
+          <select 
+            value={targetMonth} 
+            onChange={(e) => setTargetMonth(Number(e.target.value))}
+            className="p-2 rounded-lg border font-bold text-gray-700 outline-none"
+          >
+            {[...Array(12)].map((_, i) => (
+              <option key={i + 1} value={i + 1}>{i + 1}月</option>
+            ))}
+          </select>
+
+          <div className="flex bg-white rounded-lg border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setTargetPeriod("first")}
+              className={`px-4 py-2 font-bold text-sm transition-colors ${targetPeriod === "first" ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-100"}`}
+            >
+              前半 (1〜15日)
+            </button>
+            <button
+              type="button"
+              onClick={() => setTargetPeriod("second")}
+              className={`px-4 py-2 font-bold text-sm transition-colors ${targetPeriod === "second" ? "bg-blue-600 text-white" : "text-gray-500 hover:bg-gray-100"}`}
+            >
+              後半 (16〜末日)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {shifts.map((shift, index) => (
+          <div 
+            key={shift.shift_date} 
+            className={`p-4 rounded-xl border-2 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 
+              ${shift.isWorking ? "border-blue-400 bg-blue-50" : "border-gray-200 bg-white hover:border-gray-300"}`}
+          >
+            {/* 左側：チェックボックスと日付 */}
+            <label className="flex items-center space-x-3 cursor-pointer w-40">
+              <input
+                type="checkbox"
+                checked={shift.isWorking}
+                onChange={(e) => updateShift(index, "isWorking", e.target.checked)}
+                className="w-5 h-5 text-blue-600 rounded cursor-pointer"
+              />
+              <span className={`font-bold text-lg ${shift.isWorking ? "text-blue-700" : "text-gray-600"}`}>
+                {shift.displayDate}
+              </span>
+            </label>
+
+            {/* 右側：時間入力 */}
+            {shift.isWorking ? (
+              <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-sm border border-blue-100">
+                <input
+                  type="time"
+                  value={shift.startTime}
+                  onChange={(e) => updateShift(index, "startTime", e.target.value)}
+                  className="p-1 outline-none text-gray-700 font-medium"
+                />
+                <span className="text-gray-400">〜</span>
+                <input
+                  type="time"
+                  value={shift.endTime}
+                  onChange={(e) => updateShift(index, "endTime", e.target.value)}
+                  className="p-1 outline-none text-gray-700 font-medium"
+                />
+              </div>
+            ) : (
+              <span className="text-gray-400 text-sm font-medium bg-gray-100 px-3 py-1 rounded-full border">
+                出勤不可
+              </span>
+            )}
+          </div>
+        ))}
+
+        <div className="pt-6 mt-6 border-t border-gray-100">
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-colors shadow-md disabled:bg-gray-400"
+          >
+            {loading ? "送信中..." : `${targetMonth}月${targetPeriod === "first" ? "前半" : "後半"}のシフトを提出`}
           </button>
         </div>
-        <LogoutButton/>
-      </div>
+      </form>
     </div>
   );
 }
