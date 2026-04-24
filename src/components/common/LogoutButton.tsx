@@ -7,14 +7,12 @@ export default function LogoutButton() {
   const router = useRouter();
 
   const handleLogout = async () => {
-    // Supabaseからログアウト
     const { error } = await supabase.auth.signOut();
-    
+
     if (error) {
       console.error("ログアウトエラー:", error.message);
       alert("ログアウトに失敗しました");
     } else {
-      // 成功したらログイン画面に強制移動
       router.push("/login");
     }
   };
