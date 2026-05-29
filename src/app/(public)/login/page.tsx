@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { getErrorMessage } from "@/lib/errors";
 import { useRouter } from "next/navigation";
 
 export default function Login() {
@@ -38,8 +39,8 @@ export default function Login() {
         alert("ユーザー登録が完了しました！");
         router.push("/setup-profile");
       }
-    } catch (error: any) {
-      alert(`エラー: ${error.message}`);
+    } catch (error: unknown) {
+      alert(`エラー: ${getErrorMessage(error)}`);
     }
   };
 

@@ -2,6 +2,23 @@
 
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { getErrorMessage } from "@/lib/errors";
+import type { ShiftFormDay } from "@/types/shift";
+import { buildPeriodDaySlots } from "@/features/shift/lib/period";
+import { buildTermId, type ShiftTerm } from "@/features/shift/lib/term";
+import { validateShiftTimes } from "@/features/shift/lib/time";
+
+const DEFAULT_START = "17:00";
+const DEFAULT_END = "21:30";
+
+function createEmptyDay(slot: { shift_date: string; displayDate: string; day: string }): ShiftFormDay {
+  return {
+    ...slot,
+    isWorking: false,
+    startTime: DEFAULT_START,
+    endTime: DEFAULT_END,
+  };
+}
 
 export default function ShiftForm() {
   const today = new Date();
@@ -9,39 +26,77 @@ export default function ShiftForm() {
 
   const [targetYear, setTargetYear] = useState(nextMonth.getFullYear());
   const [targetMonth, setTargetMonth] = useState(nextMonth.getMonth() + 1);
-  const [targetPeriod, setTargetPeriod] = useState<"first" | "second">("first");
+  const [targetPeriod, setTargetPeriod] = useState<ShiftTerm>("first");
 
-  const [shifts, setShifts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [shifts, setShifts] = useState<ShiftFormDay[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const generateDays = () => {
-      const newShifts = [];
-      const startDay = targetPeriod === "first" ? 1 : 16;
-      const lastDay = new Date(targetYear, targetMonth, 0).getDate();
-      const endDay = targetPeriod === "first" ? 15 : lastDay;
+    let cancelled = false;
 
-      for (let d = startDay; d <= endDay; d++) {
-        const dateObj = new Date(targetYear, targetMonth - 1, d);
-        const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][dateObj.getDay()];
-        const dateStr = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const loadShifts = async () => {
+      setLoading(true);
+      setErrorMessage(null);
 
-        newShifts.push({
-          shift_date: dateStr,
-          displayDate: `${d}日 (${dayOfWeek})`,
-          day: dayOfWeek,
-          isWorking: false,
-          startTime: "17:00",
-          endTime: "21:30",
-        });
+      const slots = buildPeriodDaySlots(targetYear, targetMonth, targetPeriod);
+      const termId = buildTermId(targetYear, targetMonth, targetPeriod);
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      if (!user) {
+        if (!cancelled) {
+          setShifts(slots.map(createEmptyDay));
+          setLoading(false);
+        }
+        return;
       }
-      setShifts(newShifts);
+
+      const { data: existing, error } = await supabase
+        .from("shifts")
+        .select("shift_date, is_working, start_time, end_time")
+        .eq("user_id", user.id)
+        .eq("term_id", termId);
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error(error);
+        setErrorMessage("提出済みデータの読み込みに失敗しました");
+        setShifts(slots.map(createEmptyDay));
+        setLoading(false);
+        return;
+      }
+
+      const existingMap = new Map((existing ?? []).map((row) => [row.shift_date, row]));
+
+      const merged = slots.map((slot) => {
+        const saved = existingMap.get(slot.shift_date);
+        if (!saved) return createEmptyDay(slot);
+
+        return {
+          ...slot,
+          isWorking: saved.is_working,
+          startTime: saved.start_time?.slice(0, 5) ?? DEFAULT_START,
+          endTime: saved.end_time?.slice(0, 5) ?? DEFAULT_END,
+        };
+      });
+
+      setShifts(merged);
+      setLoading(false);
     };
 
-    generateDays();
+    loadShifts();
+
+    return () => {
+      cancelled = true;
+    };
   }, [targetYear, targetMonth, targetPeriod]);
 
-  const updateShift = (index: number, field: string, value: any) => {
+  const updateShift = <K extends keyof ShiftFormDay>(index: number, field: K, value: ShiftFormDay[K]) => {
     const newShifts = [...shifts];
     newShifts[index] = { ...newShifts[index], [field]: value };
     setShifts(newShifts);
@@ -49,41 +104,57 @@ export default function ShiftForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setErrorMessage(null);
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      alert("ログインしていません");
-      setLoading(false);
-      return;
+    for (const shift of shifts) {
+      if (!shift.isWorking) continue;
+      const validationError = validateShiftTimes(shift.startTime, shift.endTime);
+      if (validationError) {
+        setErrorMessage(`${shift.displayDate}: ${validationError}`);
+        return;
+      }
     }
 
-    const termId = `${targetYear}-${String(targetMonth).padStart(2, "0")}-${targetPeriod}`;
+    setSubmitting(true);
 
-    const dataToSave = shifts.map((shift) => ({
-      user_id: user.id,
-      shift_date: shift.shift_date,
-      term_id: termId,
-      day: shift.day,
-      is_working: shift.isWorking,
-      start_time: shift.isWorking ? shift.startTime : null,
-      end_time: shift.isWorking ? shift.endTime : null,
-    }));
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-    const { error } = await supabase
-      .from("shifts")
-      .upsert(dataToSave, { onConflict: "user_id, shift_date" });
+      if (!user) {
+        setErrorMessage("ログインしていません");
+        return;
+      }
 
-    if (error) {
-      console.error(error);
-      alert("保存に失敗しました");
-    } else {
+      const termId = buildTermId(targetYear, targetMonth, targetPeriod);
+
+      const dataToSave = shifts.map((shift) => ({
+        user_id: user.id,
+        shift_date: shift.shift_date,
+        term_id: termId,
+        day: shift.day,
+        is_working: shift.isWorking,
+        start_time: shift.isWorking ? shift.startTime : null,
+        end_time: shift.isWorking ? shift.endTime : null,
+      }));
+
+      const { error } = await supabase
+        .from("shifts")
+        .upsert(dataToSave, { onConflict: "user_id, shift_date" });
+
+      if (error) throw error;
+
       alert(`${targetMonth}月 ${targetPeriod === "first" ? "前半" : "後半"} のシフトを提出しました！`);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage(`保存に失敗しました: ${getErrorMessage(error)}`);
+    } finally {
+      setSubmitting(false);
     }
-    setLoading(false);
   };
+
+  const yearOptions = [today.getFullYear(), today.getFullYear() + 1];
 
   return (
     <div className="rounded-3xl border border-white/70 bg-white/80 p-6 md:p-8 shadow-xl shadow-zinc-200/50 backdrop-blur-md">
@@ -95,8 +166,11 @@ export default function ShiftForm() {
             onChange={(e) => setTargetYear(Number(e.target.value))}
             className="rounded-xl border border-zinc-200 bg-white/90 px-4 py-2.5 text-sm font-medium text-zinc-700 outline-none transition-all duration-500 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
           >
-            <option value={today.getFullYear()}>{today.getFullYear()}年</option>
-            <option value={today.getFullYear() + 1}>{today.getFullYear() + 1}年</option>
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>
+                {y}年
+              </option>
+            ))}
           </select>
 
           <select
@@ -138,59 +212,73 @@ export default function ShiftForm() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {shifts.map((shift, index) => (
-          <div
-            key={shift.shift_date}
-            className={`p-4 rounded-2xl border transition-all duration-500 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg shadow-zinc-200/20 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-zinc-200/40
+      {errorMessage && (
+        <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
+        </p>
+      )}
+
+      {loading ? (
+        <p className="rounded-2xl border border-zinc-100 bg-zinc-50/70 py-10 text-center text-sm font-medium text-zinc-400">
+          読み込み中...
+        </p>
+      ) : (
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {shifts.map((shift, index) => (
+            <div
+              key={shift.shift_date}
+              className={`p-4 rounded-2xl border transition-all duration-500 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-lg shadow-zinc-200/20 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-zinc-200/40
               ${shift.isWorking ? "border-emerald-200/80 bg-emerald-50/70" : "border-zinc-100/90 bg-white/90"}`}
-          >
-            <label className="flex items-center space-x-3 cursor-pointer w-40">
-              <input
-                type="checkbox"
-                checked={shift.isWorking}
-                onChange={(e) => updateShift(index, "isWorking", e.target.checked)}
-                className="h-5 w-5 cursor-pointer rounded border-zinc-300 text-zinc-700 focus:ring-zinc-400"
-              />
-              <span className={`font-semibold tracking-wide text-lg ${shift.isWorking ? "text-zinc-800" : "text-zinc-600"}`}>
-                {shift.displayDate}
-              </span>
-            </label>
+            >
+              <label className="flex items-center space-x-3 cursor-pointer w-40">
+                <input
+                  type="checkbox"
+                  checked={shift.isWorking}
+                  onChange={(e) => updateShift(index, "isWorking", e.target.checked)}
+                  className="h-5 w-5 cursor-pointer rounded border-zinc-300 text-zinc-700 focus:ring-zinc-400"
+                />
+                <span
+                  className={`font-semibold tracking-wide text-lg ${shift.isWorking ? "text-zinc-800" : "text-zinc-600"}`}
+                >
+                  {shift.displayDate}
+                </span>
+              </label>
 
-            {shift.isWorking ? (
-              <div className="flex items-center space-x-2 bg-white/95 p-2.5 rounded-xl shadow-sm border border-zinc-200">
-                <input
-                  type="time"
-                  value={shift.startTime}
-                  onChange={(e) => updateShift(index, "startTime", e.target.value)}
-                  className="rounded-lg border border-zinc-200 px-2 py-1.5 outline-none text-zinc-700 text-sm font-medium focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-                />
-                <span className="text-zinc-400">〜</span>
-                <input
-                  type="time"
-                  value={shift.endTime}
-                  onChange={(e) => updateShift(index, "endTime", e.target.value)}
-                  className="rounded-lg border border-zinc-200 px-2 py-1.5 outline-none text-zinc-700 text-sm font-medium focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-                />
-              </div>
-            ) : (
-              <span className="rounded-full border border-zinc-200 bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-500">
-                出勤不可
-              </span>
-            )}
+              {shift.isWorking ? (
+                <div className="flex items-center space-x-2 bg-white/95 p-2.5 rounded-xl shadow-sm border border-zinc-200">
+                  <input
+                    type="time"
+                    value={shift.startTime}
+                    onChange={(e) => updateShift(index, "startTime", e.target.value)}
+                    className="rounded-lg border border-zinc-200 px-2 py-1.5 outline-none text-zinc-700 text-sm font-medium focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
+                  />
+                  <span className="text-zinc-400">〜</span>
+                  <input
+                    type="time"
+                    value={shift.endTime}
+                    onChange={(e) => updateShift(index, "endTime", e.target.value)}
+                    className="rounded-lg border border-zinc-200 px-2 py-1.5 outline-none text-zinc-700 text-sm font-medium focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
+                  />
+                </div>
+              ) : (
+                <span className="rounded-full border border-zinc-200 bg-zinc-100 px-3 py-1 text-sm font-medium text-zinc-500">
+                  出勤不可
+                </span>
+              )}
+            </div>
+          ))}
+
+          <div className="pt-6 mt-6 border-t border-zinc-100">
+            <button
+              type="submit"
+              disabled={submitting || loading}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-800 py-4 text-sm font-semibold tracking-wide text-white shadow-lg shadow-zinc-300/50 transition-all duration-500 hover:-translate-y-0.5 hover:bg-zinc-700 disabled:translate-y-0 disabled:border-zinc-300 disabled:bg-zinc-300"
+            >
+              {submitting ? "送信中..." : `${targetMonth}月${targetPeriod === "first" ? "前半" : "後半"}のシフトを提出`}
+            </button>
           </div>
-        ))}
-
-        <div className="pt-6 mt-6 border-t border-zinc-100">
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-800 py-4 text-sm font-semibold tracking-wide text-white shadow-lg shadow-zinc-300/50 transition-all duration-500 hover:-translate-y-0.5 hover:bg-zinc-700 disabled:translate-y-0 disabled:border-zinc-300 disabled:bg-zinc-300"
-          >
-            {loading ? "送信中..." : `${targetMonth}月${targetPeriod === "first" ? "前半" : "後半"}のシフトを提出`}
-          </button>
-        </div>
-      </form>
+        </form>
+      )}
     </div>
   );
 }

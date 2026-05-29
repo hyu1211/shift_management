@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 
-export default function RootPage() {
+type AuthGuardProps = {
+  children: React.ReactNode;
+  mode: "teacher" | "admin";
+};
+
+export default function AuthGuard({ children, mode }: AuthGuardProps) {
   const router = useRouter();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const routeByRole = async () => {
+    const check = async () => {
       const {
         data: { user },
         error: userError,
@@ -30,20 +36,29 @@ export default function RootPage() {
         return;
       }
 
-      if (profile.role === "admin") {
+      if (mode === "admin") {
+        if (profile.role !== "admin") {
+          router.replace("/teacher");
+          return;
+        }
+      } else if (profile.role === "admin") {
         router.replace("/admin");
         return;
       }
 
-      router.replace("/teacher");
+      setReady(true);
     };
 
-    routeByRole();
-  }, [router]);
+    check();
+  }, [mode, router]);
 
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-b from-zinc-50 via-slate-50 to-zinc-100/80 p-10 text-zinc-500">
-      読み込み中...
-    </div>
-  );
+  if (!ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-10 text-zinc-500">
+        読み込み中...
+      </div>
+    );
+  }
+
+  return <>{children}</>;
 }

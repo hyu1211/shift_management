@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getErrorMessage } from "@/lib/errors";
 
 export default function SetupProfilePage() {
   const [fullName, setFullName] = useState("");
@@ -80,9 +81,9 @@ export default function SetupProfilePage() {
         alert("プロフィールを設定しました！");
         router.push("/");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("プロフィール保存例外:", error);
-      alert(`プロフィール保存に失敗しました: ${error?.message ?? "不明なエラー"}`);
+      alert(`プロフィール保存に失敗しました: ${getErrorMessage(error)}`);
     } finally {
       setLoading(false);
     }
