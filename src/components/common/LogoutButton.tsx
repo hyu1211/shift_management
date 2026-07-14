@@ -2,27 +2,27 @@
 
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/common/Toast";
+import Button from "@/components/common/Button";
 
 export default function LogoutButton() {
   const router = useRouter();
+  const { showToast } = useToast();
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
 
     if (error) {
       console.error("ログアウトエラー:", error.message);
-      alert("ログアウトに失敗しました");
+      showToast("ログアウトに失敗しました", "error");
     } else {
       router.push("/login");
     }
   };
 
   return (
-    <button
-      onClick={handleLogout}
-      className="rounded-xl border border-red-200 bg-white/90 px-4 py-2 text-sm font-medium tracking-wide text-red-600 transition-all duration-300 hover:border-red-300 hover:bg-red-50"
-    >
+    <Button variant="outline-danger" onClick={handleLogout}>
       ログアウト
-    </button>
+    </Button>
   );
 }

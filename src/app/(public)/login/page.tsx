@@ -4,16 +4,29 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { getErrorMessage } from "@/lib/errors";
 import { useRouter } from "next/navigation";
+import { useToast } from "@/components/common/Toast";
+import Button from "@/components/common/Button";
+
+const MIN_PASSWORD_LENGTH = 6;
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isLogin, setIsLogin] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
+  const { showToast } = useToast();
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!isLogin && password.length < MIN_PASSWORD_LENGTH) {
+      showToast(`パスワードは${MIN_PASSWORD_LENGTH}文字以上で入力してください。`, "error");
+      return;
+    }
+
+    setSubmitting(true);
     try {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({
@@ -21,7 +34,7 @@ export default function Login() {
           password,
         });
         if (error) throw error;
-        alert("ログインしました！");
+        showToast("ログインしました！");
         router.push("/");
       } else {
         const { data, error } = await supabase.auth.signUp({
@@ -31,16 +44,35 @@ export default function Login() {
         if (error) throw error;
 
         if (!data.session) {
-          alert("確認メールを送信しました。メール認証後にログインしてください。");
+          showToast("確認メールを送信しました。メール認証後にログインしてください。");
           setIsLogin(true);
           return;
         }
 
-        alert("ユーザー登録が完了しました！");
+        showToast("ユーザー登録が完了しました！");
         router.push("/setup-profile");
       }
     } catch (error: unknown) {
-      alert(`エラー: ${getErrorMessage(error)}`);
+      showToast(`エラー: ${getErrorMessage(error)}`, "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!email.trim()) {
+      showToast("メールアドレスを入力してください。", "error");
+      return;
+    }
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (error) throw error;
+      showToast("パスワード再設定用のメールを送信しました。");
+    } catch (error: unknown) {
+      showToast(`エラー: ${getErrorMessage(error)}`, "error");
     }
   };
 
@@ -68,30 +100,42 @@ export default function Login() {
 
           <div className="space-y-2">
             <label className="block text-sm font-medium tracking-wide text-zinc-600">パスワード (6文字以上)</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-xl border border-zinc-200 bg-white/90 p-3 text-zinc-700 outline-none transition-all duration-500 placeholder:text-zinc-300 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-              required
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                minLength={isLogin ? undefined : MIN_PASSWORD_LENGTH}
+                className="w-full rounded-xl border border-zinc-200 bg-white/90 p-3 pr-16 text-zinc-700 outline-none transition-all duration-500 placeholder:text-zinc-300 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
+                required
+              />
+              <Button
+                variant="ghost"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2"
+              >
+                {showPassword ? "隠す" : "表示"}
+              </Button>
+            </div>
           </div>
 
-          <button
-            type="submit"
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-800 py-3.5 px-4 text-sm font-semibold tracking-wide text-white shadow-lg shadow-zinc-300/50 transition-all duration-500 hover:-translate-y-0.5 hover:bg-zinc-700"
-          >
-            {isLogin ? "ログインする" : "登録してはじめる"}
-          </button>
+          {isLogin && (
+            <div className="text-right">
+              <Button variant="ghost" onClick={handleForgotPassword}>
+                パスワードをお忘れですか？
+              </Button>
+            </div>
+          )}
+
+          <Button type="submit" variant="primary" fullWidth disabled={submitting}>
+            {submitting ? "処理中..." : isLogin ? "ログインする" : "登録してはじめる"}
+          </Button>
         </form>
 
         <div className="mt-8 text-center">
-          <button
-            onClick={() => setIsLogin(!isLogin)}
-            className="text-sm font-medium tracking-wide text-zinc-500 transition-all duration-300 hover:text-zinc-700"
-          >
+          <Button variant="ghost" onClick={() => setIsLogin(!isLogin)}>
             {isLogin ? "アカウントをお持ちでない方はこちら" : "すでにアカウントをお持ちの方はこちら"}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

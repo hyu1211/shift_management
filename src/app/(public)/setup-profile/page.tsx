@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getErrorMessage } from "@/lib/errors";
+import { useToast } from "@/components/common/Toast";
+import Button from "@/components/common/Button";
 
 export default function SetupProfilePage() {
   const [fullName, setFullName] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { showToast } = useToast();
 
   useEffect(() => {
     const guardAlreadySetup = async () => {
@@ -39,7 +42,7 @@ export default function SetupProfilePage() {
     try {
       const trimmedName = fullName.trim();
       if (!trimmedName) {
-        alert("氏名を入力してください。");
+        showToast("氏名を入力してください。", "error");
         return;
       }
 
@@ -49,7 +52,7 @@ export default function SetupProfilePage() {
       } = await supabase.auth.getUser();
 
       if (userError || !user) {
-        alert("セッションが切れました。再度ログインしてください。");
+        showToast("セッションが切れました。再度ログインしてください。", "error");
         router.push("/login");
         return;
       }
@@ -76,14 +79,14 @@ export default function SetupProfilePage() {
       if (error) {
         console.error("プロフィール保存エラー(生データ):", error);
         const message = error.message || "RLSポリシーまたはprofilesテーブル設定を確認してください";
-        alert(`プロフィール保存に失敗しました: ${message}`);
+        showToast(`プロフィール保存に失敗しました: ${message}`, "error");
       } else {
-        alert("プロフィールを設定しました！");
+        showToast("プロフィールを設定しました！");
         router.push("/");
       }
     } catch (error: unknown) {
       console.error("プロフィール保存例外:", error);
-      alert(`プロフィール保存に失敗しました: ${getErrorMessage(error)}`);
+      showToast(`プロフィール保存に失敗しました: ${getErrorMessage(error)}`, "error");
     } finally {
       setLoading(false);
     }
@@ -111,13 +114,9 @@ export default function SetupProfilePage() {
             />
           </div>
 
-          <button
-            type="submit"
-            disabled={loading || !fullName.trim()}
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-800 py-4 text-sm font-semibold tracking-wide text-white shadow-lg shadow-zinc-300/50 transition-all duration-500 hover:-translate-y-0.5 hover:bg-zinc-700 disabled:translate-y-0 disabled:border-zinc-300 disabled:bg-zinc-300"
-          >
+          <Button type="submit" variant="primary" fullWidth disabled={loading || !fullName.trim()}>
             {loading ? "保存中..." : "利用を開始する"}
-          </button>
+          </Button>
         </form>
       </div>
     </main>

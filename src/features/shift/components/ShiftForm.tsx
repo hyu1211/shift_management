@@ -7,6 +7,10 @@ import type { ShiftFormDay } from "@/types/shift";
 import { buildPeriodDaySlots } from "@/features/shift/lib/period";
 import { buildTermId, type ShiftTerm } from "@/features/shift/lib/term";
 import { validateShiftTimes } from "@/features/shift/lib/time";
+import { useToast } from "@/components/common/Toast";
+import Button from "@/components/common/Button";
+import YearMonthSelect from "@/features/shift/components/YearMonthSelect";
+import PeriodToggle from "@/features/shift/components/PeriodToggle";
 
 const DEFAULT_START = "17:00";
 const DEFAULT_END = "21:30";
@@ -21,6 +25,7 @@ function createEmptyDay(slot: { shift_date: string; displayDate: string; day: st
 }
 
 export default function ShiftForm() {
+  const { showToast } = useToast();
   const today = new Date();
   const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
 
@@ -145,7 +150,7 @@ export default function ShiftForm() {
 
       if (error) throw error;
 
-      alert(`${targetMonth}月 ${targetPeriod === "first" ? "前半" : "後半"} のシフトを提出しました！`);
+      showToast(`${targetMonth}月 ${targetPeriod === "first" ? "前半" : "後半"} のシフトを提出しました！`);
     } catch (error) {
       console.error(error);
       setErrorMessage(`保存に失敗しました: ${getErrorMessage(error)}`);
@@ -161,54 +166,20 @@ export default function ShiftForm() {
       <div className="mb-8 rounded-2xl border border-zinc-100/90 bg-zinc-50/80 p-4 md:p-5">
         <h2 className="mb-3 text-sm font-semibold tracking-wide text-zinc-500">提出する期間を選んでください</h2>
         <div className="flex flex-wrap gap-4 items-center">
-          <select
-            value={targetYear}
-            onChange={(e) => setTargetYear(Number(e.target.value))}
-            className="rounded-xl border border-zinc-200 bg-white/90 px-4 py-2.5 text-sm font-medium text-zinc-700 outline-none transition-all duration-500 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-          >
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>
-                {y}年
-              </option>
-            ))}
-          </select>
+          <YearMonthSelect
+            year={targetYear}
+            month={targetMonth}
+            yearOptions={yearOptions}
+            onYearChange={setTargetYear}
+            onMonthChange={setTargetMonth}
+          />
 
-          <select
-            value={targetMonth}
-            onChange={(e) => setTargetMonth(Number(e.target.value))}
-            className="rounded-xl border border-zinc-200 bg-white/90 px-4 py-2.5 text-sm font-medium text-zinc-700 outline-none transition-all duration-500 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-          >
-            {[...Array(12)].map((_, i) => (
-              <option key={i + 1} value={i + 1}>
-                {i + 1}月
-              </option>
-            ))}
-          </select>
-
-          <div className="flex rounded-2xl border border-zinc-200/90 bg-zinc-100/80 p-1.5 overflow-hidden shadow-inner shadow-zinc-200/30">
-            <button
-              type="button"
-              onClick={() => setTargetPeriod("first")}
-              className={`rounded-xl px-4 py-2.5 text-sm font-semibold tracking-wide transition-all duration-500 ${
-                targetPeriod === "first"
-                  ? "bg-white text-zinc-800 shadow-md shadow-zinc-300/40"
-                  : "text-zinc-500 hover:text-zinc-700"
-              }`}
-            >
-              前半 (1〜15日)
-            </button>
-            <button
-              type="button"
-              onClick={() => setTargetPeriod("second")}
-              className={`rounded-xl px-4 py-2.5 text-sm font-semibold tracking-wide transition-all duration-500 ${
-                targetPeriod === "second"
-                  ? "bg-white text-zinc-800 shadow-md shadow-zinc-300/40"
-                  : "text-zinc-500 hover:text-zinc-700"
-              }`}
-            >
-              後半 (16〜末日)
-            </button>
-          </div>
+          <PeriodToggle
+            value={targetPeriod}
+            onChange={setTargetPeriod}
+            firstLabel="前半 (1〜15日)"
+            secondLabel="後半 (16〜末日)"
+          />
         </div>
       </div>
 
@@ -234,8 +205,9 @@ export default function ShiftForm() {
                 <input
                   type="checkbox"
                   checked={shift.isWorking}
+                  disabled={submitting}
                   onChange={(e) => updateShift(index, "isWorking", e.target.checked)}
-                  className="h-5 w-5 cursor-pointer rounded border-zinc-300 text-zinc-700 focus:ring-zinc-400"
+                  className="h-5 w-5 cursor-pointer rounded border-zinc-300 text-zinc-700 focus:ring-zinc-400 disabled:cursor-not-allowed disabled:opacity-50"
                 />
                 <span
                   className={`font-semibold tracking-wide text-lg ${shift.isWorking ? "text-zinc-800" : "text-zinc-600"}`}
@@ -249,15 +221,17 @@ export default function ShiftForm() {
                   <input
                     type="time"
                     value={shift.startTime}
+                    disabled={submitting}
                     onChange={(e) => updateShift(index, "startTime", e.target.value)}
-                    className="rounded-lg border border-zinc-200 px-2 py-1.5 outline-none text-zinc-700 text-sm font-medium focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
+                    className="rounded-lg border border-zinc-200 px-2 py-1.5 outline-none text-zinc-700 text-sm font-medium focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <span className="text-zinc-400">〜</span>
                   <input
                     type="time"
                     value={shift.endTime}
+                    disabled={submitting}
                     onChange={(e) => updateShift(index, "endTime", e.target.value)}
-                    className="rounded-lg border border-zinc-200 px-2 py-1.5 outline-none text-zinc-700 text-sm font-medium focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
+                    className="rounded-lg border border-zinc-200 px-2 py-1.5 outline-none text-zinc-700 text-sm font-medium focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                 </div>
               ) : (
@@ -269,13 +243,9 @@ export default function ShiftForm() {
           ))}
 
           <div className="pt-6 mt-6 border-t border-zinc-100">
-            <button
-              type="submit"
-              disabled={submitting || loading}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-800 py-4 text-sm font-semibold tracking-wide text-white shadow-lg shadow-zinc-300/50 transition-all duration-500 hover:-translate-y-0.5 hover:bg-zinc-700 disabled:translate-y-0 disabled:border-zinc-300 disabled:bg-zinc-300"
-            >
+            <Button type="submit" variant="primary" fullWidth disabled={submitting || loading}>
               {submitting ? "送信中..." : `${targetMonth}月${targetPeriod === "first" ? "前半" : "後半"}のシフトを提出`}
-            </button>
+            </Button>
           </div>
         </form>
       )}

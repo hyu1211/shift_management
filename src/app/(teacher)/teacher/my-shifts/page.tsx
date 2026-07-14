@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
 import type { ShiftRow } from "@/types/shift";
 import { buildTermId, type ShiftTerm } from "@/features/shift/lib/term";
 import { formatTimeHHmm } from "@/features/shift/lib/time";
+import YearMonthSelect from "@/features/shift/components/YearMonthSelect";
+import PeriodToggle from "@/features/shift/components/PeriodToggle";
 
 export default function MyShiftsPage() {
   const today = new Date();
-  const router = useRouter();
   const currentYear = today.getFullYear();
   const yearOptions = [currentYear - 1, currentYear, currentYear + 1];
 
@@ -30,11 +30,12 @@ export default function MyShiftsPage() {
       try {
         const {
           data: { user },
-          error: userError,
         } = await supabase.auth.getUser();
 
-        if (userError || !user) {
-          router.push("/login");
+        // AuthGuardが認証済みであることを保証済みのため、ここでは
+        // クエリに使うuser.idの取得のみ行う（未認証時のリダイレクトはAuthGuardの責務）
+        if (!user) {
+          if (!cancelled) setLoading(false);
           return;
         }
 
@@ -68,7 +69,7 @@ export default function MyShiftsPage() {
     return () => {
       cancelled = true;
     };
-  }, [router, targetMonth, targetPeriod, targetYear]);
+  }, [targetMonth, targetPeriod, targetYear]);
 
   return (
     <div className="rounded-3xl border border-white/70 bg-white/80 p-6 md:p-8 shadow-xl shadow-zinc-200/50 backdrop-blur-md">
@@ -78,52 +79,20 @@ export default function MyShiftsPage() {
       </div>
 
       <div className="mb-6 grid grid-cols-1 gap-3 rounded-2xl border border-zinc-100/90 bg-zinc-50/80 p-4 sm:grid-cols-2">
-        <select
-          value={targetYear}
-          onChange={(e) => setTargetYear(Number(e.target.value))}
-          className="rounded-xl border border-zinc-200 bg-white/90 px-4 py-2.5 text-sm font-medium text-zinc-700 outline-none transition-all duration-500 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-        >
-          {yearOptions.map((y) => (
-            <option key={y} value={y}>
-              {y}年
-            </option>
-          ))}
-        </select>
-        <select
-          value={targetMonth}
-          onChange={(e) => setTargetMonth(Number(e.target.value))}
-          className="rounded-xl border border-zinc-200 bg-white/90 px-4 py-2.5 text-sm font-medium text-zinc-700 outline-none transition-all duration-500 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
-        >
-          {[...Array(12)].map((_, i) => (
-            <option key={i + 1} value={i + 1}>
-              {i + 1}月
-            </option>
-          ))}
-        </select>
-        <div className="flex overflow-hidden rounded-2xl border border-zinc-200/90 bg-zinc-100/80 p-1.5 shadow-inner shadow-zinc-200/30 sm:col-span-2">
-          <button
-            type="button"
-            onClick={() => setTargetPeriod("first")}
-            className={`flex-1 rounded-xl py-2.5 text-xs font-semibold tracking-wide transition-all duration-500 ${
-              targetPeriod === "first"
-                ? "bg-white text-zinc-800 shadow-md shadow-zinc-300/40"
-                : "text-zinc-500 hover:text-zinc-700"
-            }`}
-          >
-            前半 (1〜15日)
-          </button>
-          <button
-            type="button"
-            onClick={() => setTargetPeriod("second")}
-            className={`flex-1 rounded-xl py-2.5 text-xs font-semibold tracking-wide transition-all duration-500 ${
-              targetPeriod === "second"
-                ? "bg-white text-zinc-800 shadow-md shadow-zinc-300/40"
-                : "text-zinc-500 hover:text-zinc-700"
-            }`}
-          >
-            後半 (16〜末日)
-          </button>
-        </div>
+        <YearMonthSelect
+          year={targetYear}
+          month={targetMonth}
+          yearOptions={yearOptions}
+          onYearChange={setTargetYear}
+          onMonthChange={setTargetMonth}
+        />
+        <PeriodToggle
+          value={targetPeriod}
+          onChange={setTargetPeriod}
+          firstLabel="前半 (1〜15日)"
+          secondLabel="後半 (16〜末日)"
+          fullWidth
+        />
       </div>
 
       {loading ? (

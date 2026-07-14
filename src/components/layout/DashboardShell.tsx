@@ -15,7 +15,14 @@ export default function DashboardShell({ mode, children }: DashboardShellProps) 
   const pathname = usePathname();
   const homePath = mode === "teacher" ? "/teacher" : "/admin";
   const isHome = pathname === homePath;
-  const isWideAdmin = mode === "admin" && pathname.startsWith("/admin/shifts");
+  const WIDE_ADMIN_PREFIXES = [
+    "/admin/shifts",
+    "/admin/students",
+    "/admin/teachers",
+    "/admin/confirmed-shifts",
+  ];
+  const isWideAdmin =
+    mode === "admin" && WIDE_ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 
   const [fullName, setFullName] = useState<string | null>(null);
 
